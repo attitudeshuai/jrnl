@@ -79,3 +79,81 @@ Feature: Journals iteracting with the file system in a way that users can see
         Given we use the config "editor_markdown_extension.yaml"
         When we run "jrnl --edit"
         Then the editor filename should end with "-extension.md"
+
+    @on_posix
+    Scenario: Saving through a symlink updates the linked file and keeps the link
+        Given we use the config "simple.yaml"
+        And the journal file is a symbolic link to a file in another directory
+        And the journal file permissions are "640"
+        And we note the journal file permissions
+        When we run "jrnl 2 February 2024: Entry written through a symlink"
+        Then we should get no error
+        And the journal path should still be a symbolic link
+        And the file the journal points at should contain "Entry written through a symlink"
+        And the journal file permissions should be unchanged
+        And no temporary files should be left in the journal directory
+
+    @on_posix
+    Scenario: Deleting an entry through a symlink updates the linked file
+        Given we use the config "simple.yaml"
+        And the journal file is a symbolic link to a file in another directory
+        When we run "jrnl 8 February 2024: Doomed symlink entry"
+        And we run "jrnl -contains Doomed --delete" and enter
+            """
+            Y
+            """
+        Then the error output should contain "1 entry deleted"
+        And the journal path should still be a symbolic link
+        And the file the journal points at should not contain "Doomed symlink entry"
+
+    @on_posix
+    Scenario: Saving a journal with multiple hard links keeps every name current
+        Given we use the config "simple.yaml"
+        And the journal file has another hard link at "hardlinked.journal"
+        When we run "jrnl 3 February 2024: Entry written through a hard link"
+        Then we should get no error
+        And the journal file and "hardlinked.journal" should still be the same file
+        And the file "hardlinked.journal" should contain "Entry written through a hard link"
+        And no temporary files should be left in the journal directory
+
+    @on_posix
+    Scenario: Saving into a non-writable journal directory fails before writing
+        Given we use the config "simple.yaml"
+        And we note the journal file content
+        And the journal directory is not writable
+        When we run "jrnl 4 February 2024: Entry that cannot be saved"
+        Then we should get an error
+        And the error output should contain "is not writable"
+        And the journal file content should be unchanged
+        And no temporary files should be left in the journal directory
+
+    @on_posix
+    Scenario: Saving through a dangling symlink fails and leaves the link alone
+        Given we use the config "simple.yaml"
+        And the journal path is a dangling symbolic link
+        When we run "jrnl 5 February 2024: Entry into the void"
+        Then we should get an error
+        And the error output should contain "symbolic link"
+        And the journal path should still be dangling
+        And no temporary files should be left in the journal directory
+
+    @on_posix
+    Scenario: A journal path that is a symlink to a directory can't be saved
+        Given we use the config "simple.yaml"
+        And the journal path is a symbolic link to a directory
+        When we run "jrnl 6 February 2024: Entry toward a directory"
+        Then we should get an error
+        And the error output should contain "directory, not a file"
+        And the journal path should still be a symbolic link
+
+    @on_posix
+    Scenario: Saving a read-only journal with hard links is refused to protect the names
+        Given we use the config "simple.yaml"
+        And the journal file has another hard link at "hardlinked.journal"
+        And we note the journal file content
+        And the journal file is not writable
+        When we run "jrnl 7 February 2024: Entry that cannot be saved"
+        Then we should get an error
+        And the error output should contain "hard links"
+        And the journal file content should be unchanged
+        And the journal file and "hardlinked.journal" should still be the same file

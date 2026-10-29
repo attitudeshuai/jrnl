@@ -344,6 +344,13 @@ def editor_state():
 
 
 @fixture
+def fs_state():
+    # Carries filesystem facts noted in "given" steps (modes, contents, extra
+    # paths) so "then" steps can assert they were preserved.
+    return {}
+
+
+@fixture
 def mock_editor(editor_state):
     def _mock_editor(editor_command):
         tmpfile = editor_command[-1]

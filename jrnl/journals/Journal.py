@@ -9,6 +9,7 @@ import re
 from jrnl import time
 from jrnl.config import validate_journal_name
 from jrnl.encryption import determine_encryption_method_for_writing
+from jrnl.exception import JrnlException
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
@@ -188,6 +189,17 @@ class Journal:
         filename = filename or self.config["journal"]
         dirname = os.path.dirname(filename)
         if not os.path.exists(filename):
+            if os.path.islink(filename):
+                # A dangling symbolic link must not be "repaired" by creating
+                # its target: the user may have moved the linked journal, and
+                # silently writing elsewhere would split their history.
+                raise JrnlException(
+                    Message(
+                        MsgText.JournalWriteBrokenSymlink,
+                        MsgStyle.ERROR,
+                        {"filename": filename, "target": os.readlink(filename)},
+                    )
+                )
             if not os.path.isdir(dirname):
                 os.makedirs(dirname)
                 print_msg(
@@ -581,6 +593,21 @@ def open_journal(journal_name: str, config: dict, legacy: bool = False) -> Journ
     validate_journal_name(journal_name, config)
     config = config.copy()
     config["journal"] = expand_path(config["journal"])
+
+    if os.path.islink(config["journal"]) and os.path.isdir(config["journal"]):
+        # A link that resolves to a directory can't be used as a file journal
+        # (and replacing it would replace the link, not the directory). Refuse
+        # instead of silently treating it as a folder journal.
+        raise JrnlException(
+            Message(
+                MsgText.JournalWriteTargetIsDirectory,
+                MsgStyle.ERROR,
+                {
+                    "filename": config["journal"],
+                    "target": os.path.realpath(config["journal"]),
+                },
+            )
+        )
 
     if os.path.isdir(config["journal"]):
         if config["encrypt"]:

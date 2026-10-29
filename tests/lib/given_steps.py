@@ -5,6 +5,7 @@ import json
 import os
 import random
 import shutil
+import stat
 import string
 from datetime import datetime
 from unittest.mock import MagicMock
@@ -16,10 +17,15 @@ from pytest_bdd.parsers import parse
 from pytest_bdd.parsers import re
 
 from jrnl import __version__
+from jrnl.config import scope_config
 from jrnl.time import __get_pdt_calendar
 from tests.lib.fixtures import FailedKeyring
 from tests.lib.fixtures import NoKeyring
 from tests.lib.fixtures import TestKeyring
+
+
+def _default_journal_path(config_on_disk):
+    return scope_config(config_on_disk, "default")["journal"]
 
 
 @given(re(r"we (?P<editor_method>\w+) to the editor if opened"))
@@ -187,3 +193,72 @@ def home_directory(temp_dir, home_dir, monkeypatch):
     home_path = os.path.join(temp_dir.name, home_dir)
     monkeypatch.setenv("USERPROFILE", home_path)  # for windows
     monkeypatch.setenv("HOME", home_path)  # for *nix
+
+
+# --- Filesystem layouts for journal saving behavior --- #
+@given(parse("the journal file is a symbolic link to a file in another directory"))
+def journal_is_symlink_to_other_dir(temp_dir, config_on_disk):
+    journal_path = _default_journal_path(config_on_disk)
+    other_dir = os.path.join(temp_dir.name, "linked_target_dir")
+    os.makedirs(other_dir, exist_ok=True)
+    target_path = os.path.abspath(os.path.join(other_dir, "real.journal"))
+    os.replace(journal_path, target_path)
+    os.symlink(target_path, journal_path)
+    return target_path
+
+
+@given(parse("the journal path is a dangling symbolic link"))
+def journal_is_dangling_symlink(config_on_disk):
+    journal_path = _default_journal_path(config_on_disk)
+    os.remove(journal_path)
+    os.symlink("nonexistent-target.journal", journal_path)
+
+
+@given(parse("the journal path is a symbolic link to a directory"))
+def journal_is_symlink_to_directory(temp_dir, config_on_disk):
+    journal_path = _default_journal_path(config_on_disk)
+    os.remove(journal_path)
+    target_dir = os.path.join(temp_dir.name, "a_directory_target")
+    os.makedirs(target_dir, exist_ok=True)
+    os.symlink(target_dir, journal_path)
+
+
+@given(parse('the journal file has another hard link at "{hard_link_path}"'))
+def journal_has_hard_link(config_on_disk, hard_link_path):
+    journal_path = _default_journal_path(config_on_disk)
+    parent = os.path.dirname(hard_link_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    os.link(journal_path, hard_link_path)
+
+
+@given(parse('the journal file permissions are "{mode}"'))
+def journal_file_permissions_are(config_on_disk, mode):
+    os.chmod(_default_journal_path(config_on_disk), int(mode, 8))
+
+
+@given(parse("the journal directory is not writable"))
+def journal_directory_not_writable(request, config_on_disk):
+    journal_dir = os.path.dirname(_default_journal_path(config_on_disk))
+    os.chmod(journal_dir, 0o555)
+    request.addfinalizer(lambda: os.chmod(journal_dir, 0o755))
+
+
+@given(parse("the journal file is not writable"))
+def journal_file_not_writable(request, config_on_disk):
+    journal_path = _default_journal_path(config_on_disk)
+    os.chmod(journal_path, 0o444)
+    request.addfinalizer(lambda: os.chmod(journal_path, 0o644))
+
+
+@given(parse("we note the journal file permissions"))
+def note_journal_file_permissions(config_on_disk, fs_state):
+    fs_state["mode"] = stat.S_IMODE(
+        os.stat(_default_journal_path(config_on_disk)).st_mode
+    )
+
+
+@given(parse("we note the journal file content"))
+def note_journal_file_content(config_on_disk, fs_state):
+    with open(_default_journal_path(config_on_disk), "rb") as f:
+        fs_state["content"] = f.read()

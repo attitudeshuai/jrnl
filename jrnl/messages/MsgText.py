@@ -123,6 +123,48 @@ class MsgText(Enum):
     JournalNotSaved = "Entry NOT saved to journal"
     JournalEntryAdded = "Entry added to {journal_name} journal"
 
+    JournalWriteBrokenSymlink = """
+        Can't save the journal at {filename}:
+        it is a symbolic link pointing to {target}, which doesn't exist.
+
+        Fix or remove the symbolic link, then try again.
+        """
+
+    JournalWriteTargetIsDirectory = """
+        Can't save the journal at {filename}:
+        it points to a directory, not a file:
+
+        {target}
+
+        A journal file can't replace a directory.
+        """
+
+    JournalWriteTargetNotRegularFile = """
+        Can't save the journal at {filename}:
+        it points to {target}, which is neither a regular file nor a directory.
+
+        Point the journal at a regular file, then try again.
+        """
+
+    JournalWriteDirectoryNotWritable = """
+        Can't save the journal at {filename}:
+        the directory where it must be written is not writable:
+
+        {directory}
+
+        Check the directory's permissions, then try again.
+        """
+
+    JournalWriteHardLinksNotWritable = """
+        Can't save the journal at {filename} without breaking its hard links.
+
+        The file has {link_count} names (hard links) and can't be opened for
+        writing, so jrnl can't update it in place while keeping every name
+        pointing at the same content.
+
+        Make the file writable or remove the extra hard links, then try again.
+        """
+
     JournalCountAddedSingular = "{num} entry added"
     JournalCountModifiedSingular = "{num} entry modified"
     JournalCountDeletedSingular = "{num} entry deleted"

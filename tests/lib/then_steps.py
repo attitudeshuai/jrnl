@@ -4,6 +4,7 @@
 import json
 import os
 import re
+import stat
 from xml.etree import ElementTree as ET
 
 from pytest_bdd import then
@@ -495,6 +496,74 @@ def editor_filename_suffix(suffix, editor_state):
 @then(parse("the editor file content should {comparison}"))
 def contains_editor_file_docstring(comparison, editor_state, docstring):
     contains_editor_file(comparison, docstring, editor_state)
+
+
+# --- Journal filesystem state after saving --- #
+@then(parse("the journal path should still be a symbolic link"))
+def journal_path_should_still_be_symlink(config_on_disk):
+    journal_path = scope_config(config_on_disk, "default")["journal"]
+    assert os.path.islink(journal_path)
+
+
+@then(
+    parse(
+        'the file the journal points at {it_should:Should} contain "{text}"',
+        SHOULD_DICT,
+    )
+)
+def symlink_target_should_contain(config_on_disk, it_should, text):
+    journal_path = scope_config(config_on_disk, "default")["journal"]
+    with open(os.path.realpath(journal_path), encoding="utf-8") as f:
+        assert (text in f.read()) == it_should
+
+
+@then(parse('the file "{file_path}" should contain "{text}"'))
+def named_file_should_contain(file_path, text):
+    with open(file_path, encoding="utf-8") as f:
+        assert text in f.read()
+
+
+@then(parse("the journal file permissions should be unchanged"))
+def journal_permissions_should_be_unchanged(config_on_disk, fs_state):
+    journal_path = scope_config(config_on_disk, "default")["journal"]
+    current_mode = stat.S_IMODE(os.stat(journal_path).st_mode)
+    assert current_mode == fs_state["mode"], (
+        oct(current_mode),
+        oct(fs_state["mode"]),
+    )
+
+
+@then(parse("the journal file content should be unchanged"))
+def journal_content_should_be_unchanged(config_on_disk, fs_state):
+    journal_path = scope_config(config_on_disk, "default")["journal"]
+    with open(journal_path, "rb") as f:
+        assert f.read() == fs_state["content"]
+
+
+@then(parse("no temporary files should be left in the journal directory"))
+def no_temp_files_left_in_journal_directory(config_on_disk):
+    journal_path = scope_config(config_on_disk, "default")["journal"]
+    journal_dir = os.path.dirname(journal_path)
+    leftovers = [
+        name
+        for name in os.listdir(journal_dir)
+        if name.startswith(".jrnl-") and name.endswith(".tmp")
+    ]
+    assert leftovers == [], leftovers
+
+
+@then(parse('the journal file and "{other_path}" should still be the same file'))
+def journal_and_other_name_should_be_same_file(config_on_disk, other_path):
+    journal_path = scope_config(config_on_disk, "default")["journal"]
+    assert os.path.samefile(journal_path, other_path)
+    assert os.stat(journal_path).st_nlink == 2
+
+
+@then(parse("the journal path should still be dangling"))
+def journal_path_should_still_be_dangling(config_on_disk):
+    journal_path = scope_config(config_on_disk, "default")["journal"]
+    assert os.path.islink(journal_path)
+    assert not os.path.exists(journal_path)
 
 
 @then(parse('the editor file content should {comparison} "{str_value}"'))
