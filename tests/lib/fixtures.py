@@ -344,6 +344,11 @@ def editor_state():
 
 
 @fixture
+def journal_snapshot():
+    return {}
+
+
+@fixture
 def mock_editor(editor_state):
     def _mock_editor(editor_command):
         tmpfile = editor_command[-1]
@@ -351,13 +356,19 @@ def mock_editor(editor_state):
         editor_state["command"] = editor_command
         editor_state["tmpfile"]["name"] = tmpfile
 
+        editor_input = editor_state["intent"]["input"]
+        is_binary = isinstance(editor_input, bytes)
+
         Path(tmpfile).touch()
         with open(tmpfile, editor_state["intent"]["method"]) as f:
             # Touch the file so jrnl knows it was edited
-            if editor_state["intent"]["input"] is not None:
-                f.write(editor_state["intent"]["input"])
+            if editor_input is not None:
+                f.write(editor_input)
 
             file_content = f.read()
-            editor_state["tmpfile"]["content"] = file_content
+            if is_binary:
+                editor_state["tmpfile"]["content_bytes"] = file_content
+            else:
+                editor_state["tmpfile"]["content"] = file_content
 
     return {"editor": lambda: patch("subprocess.call", side_effect=_mock_editor)}

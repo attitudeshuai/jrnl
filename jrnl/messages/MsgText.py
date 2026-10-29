@@ -186,6 +186,27 @@ class MsgText(Enum):
     NoTextReceived = """
         No entry to save, because no text was received
         """
+
+    EditorContentNotDecodable = """
+        The text saved by the editor could not be read, because it is not
+        valid in either UTF-8 or the system encoding '{encoding}'.
+
+        Nothing was written to the journal. The editor's content was kept at:
+            {preserved_path}
+        """
+
+    EditorPreservedContentEncrypted = """
+        Because the journal is encrypted, the preserved content was encrypted
+        with the journal's password and is not stored as plain text.
+        """
+
+    JournalFileNotDecodable = """
+        The journal file could not be read:
+            {filename}
+
+        Its contents are not valid in either UTF-8 or the system encoding
+        '{encoding}'.
+        """
     NoChangesToTemplate = """
         No entry to save, because the template was not changed
     """

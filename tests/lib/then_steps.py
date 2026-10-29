@@ -6,6 +6,7 @@ import os
 import re
 from xml.etree import ElementTree as ET
 
+from pytest_bdd import given
 from pytest_bdd import then
 from pytest_bdd.parsers import parse
 from pytest_bdd.parsers import re as pytest_bdd_parsers_re
@@ -508,3 +509,120 @@ def contains_editor_file(comparison, str_value, editor_state):
         assert str_value in content
     else:
         assert False, f"Comparison '{comparison}' not supported"
+
+
+def _journal_file_paths(config_on_disk):
+    scoped_config = scope_config(config_on_disk, "default")
+    journal_path = scoped_config["journal"]
+    if os.path.isdir(journal_path):
+        paths = []
+        for root, _, filenames in os.walk(journal_path):
+            for filename in filenames:
+                paths.append(os.path.join(root, filename))
+        return paths
+    if os.path.exists(journal_path):
+        return [journal_path]
+    return []
+
+
+@then(parse("the journal should not contain carriage returns"))
+def journal_should_not_contain_carriage_returns(config_on_disk):
+    for path in _journal_file_paths(config_on_disk):
+        with open(path, "rb") as f:
+            assert b"\r" not in f.read(), path
+
+
+@then(parse("the journal should not contain a byte order mark"))
+def journal_should_not_contain_bom(config_on_disk):
+    for path in _journal_file_paths(config_on_disk):
+        with open(path, "rb") as f:
+            assert not f.read().startswith(b"\xef\xbb\xbf"), path
+
+
+@then(parse('the journal file "{relative_path}" should not contain carriage returns'))
+def journal_file_should_not_contain_cr(config_on_disk, relative_path):
+    journal_dir = scope_config(config_on_disk, "default")["journal"]
+    path = os.path.join(journal_dir, relative_path)
+    with open(path, "rb") as f:
+        assert b"\r" not in f.read(), path
+
+
+@then(parse('the journal file "{relative_path}" should contain carriage returns'))
+def journal_file_should_contain_cr(config_on_disk, relative_path):
+    journal_dir = scope_config(config_on_disk, "default")["journal"]
+    path = os.path.join(journal_dir, relative_path)
+    with open(path, "rb") as f:
+        assert b"\r" in f.read(), path
+
+
+@then(parse("the output should not contain carriage returns"))
+def output_should_not_contain_carriage_returns(cli_run):
+    assert "\r" not in cli_run["stdout"]
+
+
+@then(parse("the output should not contain a byte order mark character"))
+def output_should_not_contain_bom_char(cli_run):
+    assert "\ufeff" not in cli_run["stdout"]
+
+
+@given(parse("we take a snapshot of the journal"))
+@then(parse("we take a snapshot of the journal"))
+def take_journal_snapshot(config_on_disk, journal_snapshot):
+    journal_snapshot.clear()
+    for path in _journal_file_paths(config_on_disk):
+        with open(path, "rb") as f:
+            journal_snapshot[path] = f.read()
+
+
+@then(parse("the journal should match the snapshot"))
+def journal_should_match_snapshot(config_on_disk, journal_snapshot):
+    assert journal_snapshot, "no snapshot was taken"
+    current = {path: data for path, data in _snapshot_data(config_on_disk)}
+    assert current == journal_snapshot
+
+
+@then(parse("the journal should be different from the snapshot"))
+def journal_should_differ_from_snapshot(config_on_disk, journal_snapshot):
+    assert journal_snapshot, "no snapshot was taken"
+    current = {path: data for path, data in _snapshot_data(config_on_disk)}
+    assert current != journal_snapshot
+
+
+def _snapshot_data(config_on_disk):
+    for path in _journal_file_paths(config_on_disk):
+        with open(path, "rb") as f:
+            yield path, f.read()
+
+
+@then(parse("the preserved editor content at the reported path should exist"))
+def preserved_editor_content_should_exist(cli_run):
+    path = _reported_preservation_path(cli_run)
+    assert os.path.exists(path), path
+    with open(path, "rb") as f:
+        return f.read()
+
+
+@then(parse("the preserved editor content should not contain plain text"))
+def preserved_editor_content_should_be_encrypted(cli_run):
+    path = _reported_preservation_path(cli_run)
+    with open(path, "rb") as f:
+        data = f.read()
+    assert is_v3_encrypted(data), data[:20]
+    assert b"undecodable" not in data
+
+
+def _reported_preservation_path(cli_run):
+    # Rich may hard-wrap the long temp path across lines when drawing the
+    # error box, so collapse whitespace before searching. Prefer the
+    # encrypted suffix so the shorter, non-greedy match can't truncate it.
+    collapsed = re.sub(r"[\s┃┏┓┗┛━]+", "", cli_run["stderr"])
+    for pattern in (
+        r"(/[\w./\-]+?\.recovery\.encrypted)",
+        r"(/[\w./\-]+?\.recovery)",
+        r"([A-Za-z]:[\\\w.\-]+?\.recovery\.encrypted)",
+        r"([A-Za-z]:[\\\w.\-]+?\.recovery)",
+    ):
+        match = re.search(pattern, collapsed)
+        if match:
+            return match.group(1)
+    assert False, cli_run["stderr"]

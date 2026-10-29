@@ -157,12 +157,12 @@ def append_mode(args: "Namespace", config: dict, journal: "Journal", **kwargs) -
         logging.debug(f"Append mode: cli text detected: {args.text}")
         raw = " ".join(args.text).strip()
         if args.edit:
-            raw = _write_in_editor(config, raw)
+            raw = _write_in_editor(config, journal, raw)
     elif not sys.stdin.isatty():
         logging.debug("Append mode: receiving piped text")
         raw = read_stdin_text()
     else:
-        raw = _write_in_editor(config, template_text)
+        raw = _write_in_editor(config, journal, template_text)
 
     if template_text is not None and raw == template_text:
         logging.error("Append mode: raw text was the same as the template")
@@ -232,15 +232,38 @@ def search_mode(args: "Namespace", journal: "Journal", **kwargs) -> None:
     _filter_journal_entries(args, journal)
 
 
-def _write_in_editor(config: dict, prepopulated_text: str | None = None) -> str:
+def _write_in_editor(
+    config: dict, journal: "Journal", prepopulated_text: str | None = None
+) -> str:
     editor = config["editor"]
     if editor:
         logging.debug(f"Append mode: opening editor ({editor})")
-        raw = get_text_from_editor(config, prepopulated_text)
+        raw = get_text_from_editor(
+            config,
+            prepopulated_text,
+            recovery_encrypt=_recovery_encrypt_for(journal),
+        )
     else:
         raw = get_text_from_stdin()
 
     return raw
+
+
+def _recovery_encrypt_for(journal: "Journal"):
+    """Builds a callback that protects undecodable editor output for an
+    encrypted journal. Returns None for journals that can't be encrypted, so
+    their failure path never leaves plain text that looks protected."""
+    if not journal.config.get("encrypt"):
+        return None
+    if hasattr(journal, "can_be_encrypted") and not journal.can_be_encrypted:
+        return None
+
+    def _encrypt_raw_bytes(raw_bytes: bytes) -> bytes:
+        # Encryption works on text; latin-1 maps bytes 0-255 to code points
+        # 0-255 one-to-one, so arbitrary undecodable bytes can be protected.
+        return journal._encrypt(raw_bytes.decode("latin-1"))
+
+    return _encrypt_raw_bytes
 
 
 def _filter_journal_entries(args: "Namespace", journal: "Journal", **kwargs) -> None:
@@ -320,7 +343,11 @@ def _edit_search_results(
 
     # Send user to the editor
     try:
-        edited = get_text_from_editor(config, journal.editable_str())
+        edited = get_text_from_editor(
+            config,
+            journal.editable_str(),
+            recovery_encrypt=_recovery_encrypt_for(journal),
+        )
     except JrnlException as e:
         if e.has_message_text(MsgText.NoTextReceived):
             raise JrnlException(
@@ -328,6 +355,13 @@ def _edit_search_results(
             )
         else:
             raise e
+
+    # Whitespace-only (e.g. a BOM plus blanks) is treated like an empty
+    # editor: don't turn it into a single bogus entry dated now.
+    if not edited or edited.isspace():
+        raise JrnlException(
+            Message(MsgText.NoEditsReceivedJournalNotDeleted, MsgStyle.WARNING)
+        )
 
     journal.parse_editable_str(edited)
 

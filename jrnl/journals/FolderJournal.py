@@ -1,12 +1,17 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
-import codecs
 import os
 import pathlib
 from typing import TYPE_CHECKING
 
 from jrnl import time
+from jrnl.exception import JrnlException
+from jrnl.messages import Message
+from jrnl.messages import MsgStyle
+from jrnl.messages import MsgText
+from jrnl.os_compat import decode_bytes
+from jrnl.os_compat import get_preferred_encoding
 from jrnl.path import atomic_write
 
 from .Journal import Journal
@@ -37,8 +42,21 @@ class Folder(Journal):
         if os.path.exists(self.config["journal"]):
             filenames = Folder._get_files(self.config["journal"])
             for filename in filenames:
-                with codecs.open(filename, "r", "utf-8") as f:
-                    journal = f.read()
+                with open(filename, "rb") as f:
+                    raw_bytes = f.read()
+                try:
+                    journal = decode_bytes(raw_bytes)
+                except UnicodeDecodeError:
+                    raise JrnlException(
+                        Message(
+                            MsgText.JournalFileNotDecodable,
+                            MsgStyle.ERROR,
+                            {
+                                "filename": filename,
+                                "encoding": get_preferred_encoding(),
+                            },
+                        )
+                    )
                 # The folder layout (YYYY/MM/DD.txt) is authoritative for each
                 # entry's date. Parsing the date only from the entry header
                 # loses the day when the configured timeformat has no date

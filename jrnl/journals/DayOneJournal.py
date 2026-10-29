@@ -20,6 +20,7 @@ import tzlocal
 
 from jrnl import __title__
 from jrnl import __version__
+from jrnl.os_compat import normalize_newlines
 from jrnl.path import atomic_write
 
 from .Entry import Entry
@@ -69,7 +70,7 @@ class DayOne(Journal):
                     entry = Entry(
                         self,
                         date,
-                        text=dict_entry["Entry Text"],
+                        text=normalize_newlines(dict_entry["Entry Text"]),
                         starred=dict_entry["Starred"],
                     )
                     entry.uuid = dict_entry["UUID"]

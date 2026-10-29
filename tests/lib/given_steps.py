@@ -1,8 +1,10 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
+import base64
 import json
 import os
+import pathlib
 import random
 import shutil
 import string
@@ -16,6 +18,7 @@ from pytest_bdd.parsers import parse
 from pytest_bdd.parsers import re
 
 from jrnl import __version__
+from jrnl.config import scope_config
 from jrnl.time import __get_pdt_calendar
 from tests.lib.fixtures import FailedKeyring
 from tests.lib.fixtures import NoKeyring
@@ -38,6 +41,42 @@ def we_enter_editor(editor_method, editor_input, editor_state):
         assert False, f"Method '{editor_method}' not supported"
 
     editor_state["intent"] = {"method": file_method, "input": editor_input}
+
+
+@given(
+    parse('we {editor_method} to the editor if opened the raw bytes "{b64_content}"')
+)
+def we_enter_editor_raw_bytes(editor_method, b64_content, editor_state):
+    # Lets a scenario feed the editor arbitrary bytes (BOM, CRLF, invalid
+    # UTF-8) that cannot be expressed in a text docstring.
+    if editor_method == "write":
+        file_method = "wb+"
+    elif editor_method == "append":
+        file_method = "ab+"
+    else:
+        assert False, f"Method '{editor_method}' not supported"
+
+    editor_state["intent"] = {
+        "method": file_method,
+        "input": base64.b64decode(b64_content),
+    }
+
+
+@given(parse("the journal uses Windows line endings"))
+def journal_uses_windows_line_endings(config_on_disk):
+    # Rewrites every plain-text journal file so its LF endings become CRLF,
+    # simulating a journal last edited on Windows.
+    scoped_config = scope_config(config_on_disk, "default")
+    assert not scoped_config.get(
+        "encrypt"
+    ), "Can't turn an encrypted journal's ciphertext into CRLF"
+
+    journal_path = pathlib.Path(scoped_config["journal"])
+    paths = journal_path.rglob("*.txt") if journal_path.is_dir() else [journal_path]
+    for path in paths:
+        data = path.read_bytes()
+        data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        path.write_bytes(data)
 
 
 @given(parse('now is "{date_str}"'))

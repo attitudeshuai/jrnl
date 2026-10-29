@@ -378,3 +378,146 @@ Feature: Writing new entries.
         | basic_encrypted.yaml |
         | basic_folder.yaml    |
         | basic_dayone.yaml    |
+
+    Scenario Outline: An editor saving a byte order mark produces a clean new entry
+        Given we use the config "<config_file>"
+        And we use the password "test" if prompted
+        And we write to the editor if opened the raw bytes "77u/bXkgYm9tIHRpdGxlCg=="
+        When we run "jrnl"
+        Then we should get no error
+        When we run "jrnl -1"
+        Then the output should contain "my bom title"
+        And the output should not contain a byte order mark character
+        And the journal should not contain a byte order mark
+
+        Examples: configs
+        | config_file          |
+        | basic_onefile.yaml   |
+        | basic_encrypted.yaml |
+        | basic_folder.yaml    |
+        | basic_dayone.yaml    |
+
+    Scenario Outline: An editor saving Windows line endings produces a clean new entry
+        Given we use the config "<config_file>"
+        And we use the password "test" if prompted
+        And we write to the editor if opened the raw bytes "bXkgY3JsZiB0aXRsZQ0Kc2Vjb25kIGxpbmUNCg=="
+        When we run "jrnl"
+        Then we should get no error
+        When we run "jrnl -1"
+        Then the output should contain "my crlf title"
+        And the output should contain "second line"
+        And the output should not contain carriage returns
+        And the journal should not contain carriage returns
+
+        Examples: configs
+        | config_file          |
+        | basic_onefile.yaml   |
+        | basic_encrypted.yaml |
+        | basic_folder.yaml    |
+        | basic_dayone.yaml    |
+
+    Scenario Outline: A byte order mark before the first date header does not hide it in --edit
+        Given we use the config "<config_file>"
+        And we use the password "test" if prompted
+        And we write to the editor if opened the raw bytes "77u/WzIwMjEtMTEtMTNdIEkgYW0gcmVwbGFjaW5nIG15IHdob2xlIGpvdXJuYWwgd2l0aCB0aGlzIGVudHJ5Cg=="
+        When we run "jrnl --edit"
+        Then the output should contain "2 entries deleted"
+        And the output should contain "1 entry modified"
+        When we run "jrnl -1"
+        Then the output should contain "2021-11-13 00:00 I am replacing my whole journal with this entry"
+        And the output should not contain a byte order mark character
+
+        Examples: configs
+        | config_file        |
+        | basic_onefile.yaml |
+        | basic_folder.yaml  |
+
+    Scenario Outline: A byte order mark on its own is treated like an empty editor in append mode
+        Given we use the config "<config_file>"
+        And we use the password "test" if prompted
+        And we write to the editor if opened the raw bytes "77u/"
+        When we run "jrnl"
+        Then we should get an error
+        And the error output should contain "No entry to save, because no text was received"
+
+        Examples: configs
+        | config_file          |
+        | basic_onefile.yaml   |
+        | basic_encrypted.yaml |
+        | basic_folder.yaml    |
+        | basic_dayone.yaml    |
+
+    Scenario Outline: A byte order mark with only whitespace is treated like an empty editor in --edit
+        Given we use the config "<config_file>"
+        And we use the password "test" if prompted
+        And we take a snapshot of the journal
+        And we write to the editor if opened the raw bytes "77u/IA0K"
+        When we run "jrnl --edit"
+        Then the error output should contain "No text received from editor. Were you trying to delete all the entries?"
+        And the journal should match the snapshot
+
+        Examples: configs
+        | config_file          |
+        | basic_onefile.yaml   |
+        | basic_encrypted.yaml |
+        | basic_folder.yaml    |
+        | basic_dayone.yaml    |
+
+    Scenario Outline: Undecodable editor output is preserved and the journal is left untouched
+        Given we use the config "<config_file>"
+        And we use the password "test" if prompted
+        And we take a snapshot of the journal
+        And we write to the editor if opened the raw bytes "//6AbXkgdW5kZWNvZGFibGUgdGV4dCCAgQo="
+        When we run "jrnl"
+        Then we should get an error
+        And the error output should contain "could not be read"
+        And the preserved editor content at the reported path should exist
+        And the journal should match the snapshot
+
+        Examples: configs
+        | config_file        |
+        | basic_onefile.yaml |
+        | basic_folder.yaml  |
+        | basic_dayone.yaml  |
+
+    Scenario: Undecodable editor output for an encrypted journal is preserved as ciphertext
+        Given we use the config "basic_encrypted.yaml"
+        And we use the password "test" if prompted
+        And we take a snapshot of the journal
+        And we write to the editor if opened the raw bytes "//6AbXkgdW5kZWNvZGFibGUgdGV4dCCAgQo="
+        When we run "jrnl"
+        Then we should get an error
+        And the error output should contain "could not be read"
+        And the error output should contain "not stored as plain text"
+        And the preserved editor content at the reported path should exist
+        And the preserved editor content should not contain plain text
+        And the journal should match the snapshot
+
+    Scenario: A single-file CRLF journal is normalized on first save and stable on the second
+        Given we use the config "basic_onefile.yaml"
+        And the journal uses Windows line endings
+        When we run "jrnl --export text"
+        Then we should get no error
+        And the output should not contain carriage returns
+        When we run "jrnl 2020-08-29 12:00: Brand new normalization entry"
+        Then we should get no error
+        And the journal should not contain carriage returns
+        And we take a snapshot of the journal
+        When we run "jrnl --edit"
+        Then we should get no error
+        And the journal should match the snapshot
+
+    Scenario: Saving a folder journal with Windows line endings only rewrites the affected date
+        Given we use the config "basic_folder.yaml"
+        And the journal uses Windows line endings
+        When we run "jrnl 2020-08-29 12:00: Brand new normalization entry"
+        Then we should get no error
+        And the journal file "2020/08/29.txt" should not contain carriage returns
+        And the journal file "2020/08/31.txt" should contain carriage returns
+        When we run "jrnl --export text"
+        Then the output should not contain carriage returns
+        And we take a snapshot of the journal
+        When we run "jrnl --edit"
+        Then we should get no error
+        And the journal should match the snapshot
+        And the journal file "2020/08/31.txt" should contain carriage returns

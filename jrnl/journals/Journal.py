@@ -12,6 +12,7 @@ from jrnl.encryption import determine_encryption_method_for_writing
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
+from jrnl.os_compat import normalize_newlines
 from jrnl.output import print_msg
 from jrnl.path import atomic_write
 from jrnl.path import expand_path
@@ -258,6 +259,11 @@ class Journal:
     def _parse(self, journal_txt: str) -> list[Entry]:
         """Parses a journal that's stored in a string and returns a list of entries"""
 
+        # Normalize Windows (CRLF) or classic Mac (CR) line endings so entries
+        # read from an old journal never carry carriage returns into titles,
+        # bodies, exports, or the next write.
+        journal_txt = normalize_newlines(journal_txt)
+
         # Return empty array if the journal is blank
         if not journal_txt:
             return []
@@ -452,6 +458,7 @@ class Journal:
         the input first.
         """
 
+        raw = normalize_newlines(raw)
         raw = raw.replace("\\n ", "\n").replace("\\n", "\n")
         # Split raw text into title and body
         sep = re.search(r"\n|[?!.]+ +\n?", raw)
