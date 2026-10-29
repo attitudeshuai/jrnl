@@ -1,7 +1,9 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
+import contextlib
 import datetime
+import json
 import logging
 import os
 import re
@@ -9,6 +11,7 @@ import re
 from jrnl import time
 from jrnl.config import validate_journal_name
 from jrnl.encryption import determine_encryption_method_for_writing
+from jrnl.exception import JrnlException
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
@@ -18,6 +21,21 @@ from jrnl.path import expand_path
 from jrnl.prompt import yesno
 
 from .Entry import Entry
+
+# Entries removed by a delete operation are first written to a recovery record
+# so that the most recent deletion can be undone. The record lives next to the
+# journal as a hidden sibling file (never inside a folder journal's
+# YYYY/MM tree), so it can never be read back as journal entries.
+DELETED_ENTRIES_RECORD_SUFFIX = ".jrnl-deleted"
+DELETED_ENTRIES_RECORD_MAGIC = b"JRNLDELETED1\n"
+DELETED_ENTRIES_RECORD_VERSION = 1
+
+
+def deleted_entries_record_filename(journal_path: str) -> str:
+    """Returns the recovery-record path derived from a journal path."""
+    directory = os.path.dirname(journal_path) or "."
+    basename = os.path.basename(os.path.normpath(journal_path))
+    return os.path.join(directory, "." + basename + DELETED_ENTRIES_RECORD_SUFFIX)
 
 
 class Tag:
@@ -33,6 +51,10 @@ class Tag:
 
 
 class Journal:
+    # Whether deleted entries are recorded for later restoration. DayOne
+    # journals keep their own delete behaviour and opt out.
+    supports_deleted_entries_recovery = True
+
     def __init__(self, name="default", **kwargs):
         self.config = {
             "journal": "journal.txt",
@@ -416,6 +438,190 @@ class Journal:
             self.entries.remove(entry)
             self.deleted_entry_count += 1
 
+    def deleted_entries_filename(self) -> str:
+        """Returns the location of this journal's recovery record."""
+        return deleted_entries_record_filename(self.config["journal"])
+
+    def save_deleted_entries(self, entries_to_delete: list[Entry]) -> None:
+        """Writes the entries about to be deleted into the recovery record.
+
+        The whole batch is written and flushed before the journal itself is
+        touched, so a failed write leaves the journal unchanged and no
+        temporary files behind. A new batch replaces the previous record.
+        """
+        if not entries_to_delete:
+            return
+
+        record = {
+            "version": DELETED_ENTRIES_RECORD_VERSION,
+            "entries": [
+                {
+                    "date": entry.date.isoformat(),
+                    "starred": bool(entry.starred),
+                    "text": str(entry),
+                }
+                for entry in entries_to_delete
+            ],
+        }
+        record_text = json.dumps(record, ensure_ascii=False)
+
+        try:
+            if self.config.get("encrypt"):
+                data = DELETED_ENTRIES_RECORD_MAGIC + self._encrypt(record_text)
+            else:
+                data = DELETED_ENTRIES_RECORD_MAGIC + record_text.encode("utf-8")
+            atomic_write(self.deleted_entries_filename(), data)
+        except JrnlException:
+            raise
+        except Exception as error:
+            # atomic_write removes its temp file on any failure, and the
+            # journal is only rewritten once this call succeeds.
+            raise JrnlException(
+                Message(
+                    MsgText.DeletedEntriesRecordWriteFailed,
+                    MsgStyle.ERROR,
+                    {"reason": str(error)},
+                )
+            )
+
+    def restore_deleted_entries(self) -> int | None:
+        """Puts the most recently deleted batch back into the journal.
+
+        Returns the number of restored entries, or None if no recovery record
+        exists. A record that can't be read raises and leaves the journal
+        untouched. The record is cleared only after the journal is rewritten.
+        """
+        deleted_entries = self._load_deleted_entries()
+        if deleted_entries is None:
+            return None
+
+        self._add_restored_entries(deleted_entries)
+        self.write()
+        self._clear_deleted_entries_record()
+        return len(deleted_entries)
+
+    def _add_restored_entries(self, entries: list[Entry]) -> None:
+        """Adds restored entries back to an in-memory journal before writing."""
+        self.entries.extend(entries)
+        self.sort()
+
+    def _load_deleted_entries(self) -> list[Entry] | None:
+        """Reads and validates the recovery record, or returns None if none
+        exists. Any structural problem raises instead of partially restoring."""
+        filename = self.deleted_entries_filename()
+        if not os.path.exists(filename):
+            return None
+
+        try:
+            with open(filename, "rb") as f:
+                data = f.read()
+        except OSError as error:
+            raise self._corrupt_deleted_entries_record(error)
+
+        if not data.startswith(DELETED_ENTRIES_RECORD_MAGIC):
+            reason = "the file is not a jrnl deleted-entries record"
+            raise self._corrupt_deleted_entries_record(reason)
+
+        body = data[len(DELETED_ENTRIES_RECORD_MAGIC) :]
+        try:
+            record_text = self._decrypt(body)
+            record = json.loads(record_text)
+        except JrnlException:
+            raise
+        except Exception as error:
+            raise self._corrupt_deleted_entries_record(error)
+
+        if not isinstance(record, dict):
+            reason = "the record is not an object"
+            raise self._corrupt_deleted_entries_record(reason)
+        if record.get("version") != DELETED_ENTRIES_RECORD_VERSION:
+            reason = f"unsupported record version: {record.get('version')!r}"
+            raise self._corrupt_deleted_entries_record(reason)
+
+        items = record.get("entries")
+        if not isinstance(items, list) or not items:
+            reason = "the record contains no entries"
+            raise self._corrupt_deleted_entries_record(reason)
+
+        entries = []
+        for index, item in enumerate(items):
+            reason = None
+            try:
+                if not isinstance(item, dict):
+                    reason = "entry is not an object"
+                else:
+                    date = datetime.datetime.fromisoformat(item["date"])
+                    text = item["text"]
+                    starred = item["starred"]
+                    if not isinstance(text, str) or not text:
+                        reason = "entry text is missing or empty"
+                    elif not isinstance(starred, bool):
+                        reason = "entry starred flag is not a boolean"
+                    else:
+                        parsed_entries = self._parse(text)
+                        if len(parsed_entries) != 1:
+                            reason = "entry text does not describe a single entry"
+            except JrnlException:
+                raise
+            except Exception as error:
+                reason = str(error)
+            if reason is not None:
+                message = f"entry {index + 1} is invalid: {reason}"
+                raise self._corrupt_deleted_entries_record(message)
+            entry = parsed_entries[0]
+            entry.date = date
+            entry.starred = starred
+            entries.append(entry)
+
+        return entries
+
+    def _clear_deleted_entries_record(self) -> None:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(self.deleted_entries_filename())
+
+    def _corrupt_deleted_entries_record(self, error: Exception | str) -> JrnlException:
+        reason = error if isinstance(error, str) else str(error)
+        return JrnlException(
+            Message(
+                MsgText.DeletedEntriesRecordCorrupt,
+                MsgStyle.ERROR,
+                {"reason": reason},
+            )
+        )
+
+    def _deleted_entries_from_edit(self, edited_entries: list[Entry]) -> list[Entry]:
+        """Finds entries that disappeared from the edited text.
+
+        Edited entries are matched against the current ones first by exact
+        content, then by timestamp, and finally positionally (a replacement
+        with no matching date still counts as a modification). Only old
+        entries left without any counterpart are deletions, matching the
+        net-entry-count accounting used elsewhere for editor sessions.
+        """
+        remaining_edited = list(edited_entries)
+
+        def consume_match(matches) -> bool:
+            for index, edited_entry in enumerate(remaining_edited):
+                if matches(edited_entry):
+                    remaining_edited.pop(index)
+                    return True
+            return False
+
+        unmatched = []
+        for old_entry in self.entries:
+            if not consume_match(lambda edited: edited == old_entry):
+                unmatched.append(old_entry)
+
+        still_unmatched = []
+        for old_entry in unmatched:
+            if not consume_match(lambda edited: edited.date == old_entry.date):
+                still_unmatched.append(old_entry)
+        unmatched = still_unmatched
+
+        # Pair off replacements positionally; the old entries left over once
+        # every edited entry has a counterpart are the ones actually deleted.
+        return unmatched[len(remaining_edited) :]
+
     def change_date_entries(
         self, date: datetime.datetime, entries_to_change: list[Entry]
     ) -> None:
@@ -492,6 +698,13 @@ class Journal:
     def parse_editable_str(self, edited: str) -> None:
         """Parses the output of self.editable_str and updates it's entries."""
         mod_entries = self._parse(edited)
+
+        # Record entries removed in the editor before mutating the journal, so
+        # the recovery record is in place if writing fails.
+        deleted_entries = self._deleted_entries_from_edit(mod_entries)
+        if deleted_entries:
+            self.save_deleted_entries(deleted_entries)
+
         # Match those entries that can be found in self.entries and set
         # these to modified, so we can get a count of how many entries got
         # modified and how many got deleted later.

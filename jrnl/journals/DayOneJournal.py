@@ -29,6 +29,10 @@ from .Journal import Journal
 class DayOne(Journal):
     """A special Journal handling DayOne files"""
 
+    # DayOne keeps its own plist-based delete behaviour and isn't part of the
+    # deleted-entries recovery flow.
+    supports_deleted_entries_recovery = False
+
     # InvalidFileException was added to plistlib in Python3.4
     PLIST_EXCEPTIONS = (
         (ExpatError, plistlib.InvalidFileException)

@@ -36,6 +36,7 @@ def expected_args(**kwargs):
         "on_date": None,
         "preconfig_cmd": None,
         "postconfig_cmd": None,
+        "restore_deleted": False,
         "short": False,
         "starred": False,
         "start_date": None,
@@ -64,6 +65,10 @@ def test_debug_alone():
 
 def test_delete_alone():
     assert cli_as_dict("--delete") == expected_args(delete=True)
+
+
+def test_restore_deleted_alone():
+    assert cli_as_dict("--restore-deleted") == expected_args(restore_deleted=True)
 
 
 def test_change_time_alone():

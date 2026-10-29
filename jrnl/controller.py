@@ -73,6 +73,14 @@ def run(args: "Namespace"):
     # Get the journal we're going to be working with
     journal = open_journal(args.journal_name, config)
 
+    # Restoring the most recent deletion is a standalone action on the journal
+    if args.restore_deleted:
+        _restore_deleted_entries(journal)
+        flush_pending_config_updates(
+            journal, original_config, args.journal_name, args.config_file_path
+        )
+        return
+
     kwargs = {
         "args": args,
         "config": config,
@@ -375,6 +383,31 @@ def _get_predit_stats(journal: "Journal") -> dict[str, int]:
     return {"count": len(journal)}
 
 
+def _restore_deleted_entries(journal: "Journal") -> None:
+    """Restores the batch removed by the most recent delete operation, if any."""
+    if not journal.supports_deleted_entries_recovery:
+        raise JrnlException(
+            Message(
+                MsgText.CannotRestoreJournalType,
+                MsgStyle.ERROR,
+                {"journal_type": journal.__class__.__name__},
+            )
+        )
+
+    count = journal.restore_deleted_entries()
+
+    if count is None:
+        print_msg(Message(MsgText.NothingToRestore, MsgStyle.WARNING))
+        return
+
+    my_msg = (
+        MsgText.JournalCountRestoredSingular
+        if count == 1
+        else MsgText.JournalCountRestoredPlural
+    )
+    print_msg(Message(my_msg, MsgStyle.NORMAL, {"num": count}))
+
+
 def _delete_search_results(
     journal: "Journal", old_entries: list["Entry"], **kwargs
 ) -> None:
@@ -383,6 +416,11 @@ def _delete_search_results(
     journal.entries = old_entries
 
     if entries_to_delete:
+        # Persist the recovery record first; only touch the journal once it is
+        # safely on disk.
+        if journal.supports_deleted_entries_recovery:
+            journal.save_deleted_entries(entries_to_delete)
+
         journal.delete_entries(entries_to_delete)
 
         journal.write()

@@ -99,6 +99,17 @@ class Folder(Journal):
             if os.stat(filename).st_size <= 0:
                 os.remove(filename)
 
+    def _add_restored_entries(self, entries: list["Entry"]) -> None:
+        """Puts restored entries back and marks their original dates for
+        rewriting, so emptied day files are recreated and entries are appended
+        to existing same-day files rather than overwriting them."""
+        for entry in entries:
+            entry.modified = True
+            if entry.date not in self._diff_entry_dates:
+                self._diff_entry_dates.append(entry.date)
+        self.entries.extend(entries)
+        self.sort()
+
     def delete_entries(self, entries_to_delete: list["Entry"]) -> None:
         """Deletes specific entries from a journal."""
         for entry in entries_to_delete:
@@ -121,6 +132,13 @@ class Folder(Journal):
     def parse_editable_str(self, edited: str) -> None:
         """Parses the output of self.editable_str and updates its entries."""
         mod_entries = self._parse(edited)
+
+        # Entries removed in the editor go through the same recovery flow as
+        # --delete, before anything is mutated on disk.
+        deleted_entries = self._deleted_entries_from_edit(mod_entries)
+        if deleted_entries:
+            self.save_deleted_entries(deleted_entries)
+
         diff_entries = set(self.entries) - set(mod_entries)
         for e in diff_entries:
             self._diff_entry_dates.append(e.date)

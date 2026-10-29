@@ -96,6 +96,26 @@ class MsgText(Enum):
         this journal to the new journal, then encrypt the new journal.
         """
 
+    CannotRestoreJournalType = """
+        Deleted entries can't be restored for a {journal_type} journal.
+        """
+
+    DeletedEntriesRecordWriteFailed = """
+        jrnl couldn't save the record of the entries about to be deleted:
+
+        {reason}
+
+        Nothing was deleted, and the journal was left unchanged.
+        """
+
+    DeletedEntriesRecordCorrupt = """
+        The record of deleted entries couldn't be read:
+
+        {reason}
+
+        No entries were restored, and the journal was left unchanged.
+        """
+
     ConfigEncryptedForUnencryptableJournalType = """
         The config for journal "{journal_name}" has 'encrypt' set to true, but this type
         of journal can't be encrypted. Please fix your config file.
@@ -126,10 +146,12 @@ class MsgText(Enum):
     JournalCountAddedSingular = "{num} entry added"
     JournalCountModifiedSingular = "{num} entry modified"
     JournalCountDeletedSingular = "{num} entry deleted"
+    JournalCountRestoredSingular = "{num} entry restored"
 
     JournalCountAddedPlural = "{num} entries added"
     JournalCountModifiedPlural = "{num} entries modified"
     JournalCountDeletedPlural = "{num} entries deleted"
+    JournalCountRestoredPlural = "{num} entries restored"
 
     JournalCreated = "Journal '{journal_name}' created at {filename}"
     DirectoryCreated = "Directory {directory_name} created"
@@ -252,6 +274,11 @@ class MsgText(Enum):
     # --- Search --- #
     NothingToDelete = """
         No entries to delete, because the search returned no results
+        """
+
+    NothingToRestore = """
+        No deleted entries to restore, because no entries have been deleted
+        since the last restore
         """
 
     NothingToModify = """

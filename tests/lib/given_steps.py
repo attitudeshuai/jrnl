@@ -158,6 +158,20 @@ def use_password_forever(password):
     return password
 
 
+@given("we corrupt the deleted entries record")
+def we_corrupt_the_deleted_entries_record(config_on_disk):
+    from jrnl.config import scope_config
+    from jrnl.journals.Journal import deleted_entries_record_filename
+    from jrnl.path import expand_path
+
+    scoped_config = scope_config(config_on_disk, "default")
+    record_path = deleted_entries_record_filename(expand_path(scoped_config["journal"]))
+
+    assert os.path.exists(record_path), record_path
+    with open(record_path, "wb") as f:
+        f.write(b"this is not a jrnl recovery record\n")
+
+
 @given("we create a cache directory", target_fixture="cache_dir")
 def create_cache_dir(temp_dir):
     random_str = "".join(random.choices(string.ascii_uppercase + string.digits, k=20))

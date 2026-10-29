@@ -343,6 +343,12 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         help="Change timestamp for selected entries (default: now)",
     )
     exporting.add_argument(
+        "--restore-deleted",
+        dest="restore_deleted",
+        action="store_true",
+        help="Restore the entries removed by the most recent delete operation",
+    )
+    exporting.add_argument(
         "--format",
         metavar="TYPE",
         dest="export",
