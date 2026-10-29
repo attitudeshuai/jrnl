@@ -4,6 +4,7 @@
 import json
 import os
 import re
+from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from pytest_bdd import then
@@ -128,6 +129,32 @@ def output_should_contain_version(cli_run, toml_version):
 def config_file_version(config_on_disk, toml_version):
     config_version = config_on_disk["version"]
     assert config_version == toml_version
+
+
+@then(parse('the version in the config file "{config_file}" should be current'))
+def alt_config_file_version(config_file, temp_dir, toml_version):
+    config_path = os.path.join(temp_dir.name, config_file)
+    with open(config_path, encoding="utf-8") as f:
+        config = YAML(typ="safe").load(f)
+    assert config["version"] == toml_version
+
+
+@then(parse('the config file "{config_file}" should be unchanged'))
+def config_file_should_be_unchanged(config_file, temp_dir, working_dir):
+    actual_path = os.path.join(temp_dir.name, config_file)
+    expected_path = os.path.join(working_dir, "data", "configs", config_file)
+    with open(actual_path, "rb") as f:
+        actual = f.read()
+    with open(expected_path, "rb") as f:
+        expected = f.read()
+    assert actual == expected
+
+
+@then(parse('no backup file should exist for the config "{config_file}"'))
+def no_backup_file_for_config(config_file, temp_dir):
+    backup_path = os.path.join(temp_dir.name, config_file + ".backup")
+    assert not os.path.exists(backup_path)
+    assert not list(Path(temp_dir.name).rglob("*.backup"))
 
 
 @then(parse("the output should be {width:d} columns wide"))

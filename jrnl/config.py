@@ -4,6 +4,7 @@
 import argparse
 import logging
 import os
+import re
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
@@ -31,6 +32,118 @@ DEFAULT_JOURNAL_KEY = "default"
 
 YAML_SEPARATOR = ": "
 YAML_FILE_ENCODING = "utf-8"
+
+# Version handling. jrnl releases look like "4.6" or "4.6.1", and pre-release
+# builds look like "4.6-beta2"; the first beta in a series is published as
+# "<baseline>-beta". A leading "v" is accepted for historical config files
+# (e.g. "v2.4.5"). Release numbers compare numerically and beta numbers compare
+# numerically (beta2 < beta10), never as strings.
+ParsedVersion = tuple[tuple[int, ...], int | None]
+
+_VERSION_RE = re.compile(
+    r"^v?(?P<release>\d+(?:\.\d+)*)(?:-beta(?P<beta>\d*))?$",
+    re.IGNORECASE,
+)
+
+
+def parse_jrnl_version(value: Any) -> "ParsedVersion | None":
+    """Parse a jrnl version into ``(release_numbers, beta_number)``.
+
+    ``beta_number`` is ``None`` for a release, otherwise the beta sequence
+    number (a bare ``-beta`` tag is the first beta). Returns ``None`` when the
+    value cannot be recognized, so callers can apply the conservative policy
+    of refusing to touch the config.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+
+    # YAML can hand a bare version such as 4.6 back as a number.
+    if isinstance(value, (int, float)):
+        text = str(value)
+    elif isinstance(value, str):
+        text = value.strip()
+    else:
+        return None
+
+    match = _VERSION_RE.match(text)
+    if not match:
+        return None
+
+    release = tuple(int(part) for part in match.group("release").split("."))
+    beta_number_text = match.group("beta")
+    if beta_number_text is None:
+        # No "-beta" tag at all: this is a release.
+        beta_number = None
+    else:
+        # The first beta in a series ships with a bare "-beta" tag.
+        beta_number = int(beta_number_text) if beta_number_text else 1
+    return release, beta_number
+
+
+def compare_jrnl_versions(
+    config_version: "ParsedVersion", current_version: "ParsedVersion"
+) -> int:
+    """Compare parsed versions, returning -1, 0, or 1.
+
+    On the same release baseline, any beta sorts below the release. Beta
+    sequence numbers are compared numerically rather than lexicographically.
+    """
+    config_release, config_beta = config_version
+    current_release, current_beta = current_version
+
+    if config_release < current_release:
+        return -1
+    if config_release > current_release:
+        return 1
+
+    if config_beta == current_beta:
+        return 0
+    if config_beta is None:
+        return 1
+    if current_beta is None:
+        return -1
+
+    return (config_beta > current_beta) - (config_beta < current_beta)
+
+
+def ensure_config_version_compatible(config_version: Any, config_path: str) -> None:
+    """Refuse to touch a config whose version is unparseable or newer than
+    this jrnl installation.
+
+    Raises ``JrnlException`` before any file is opened for writing. A config
+    without a version field is not checked here; callers keep routing those
+    through the existing missing-key fill-in flow.
+    """
+    parsed_config_version = parse_jrnl_version(config_version)
+    if parsed_config_version is None:
+        raise JrnlException(
+            Message(
+                MsgText.ConfigVersionUnparseable,
+                MsgStyle.ERROR,
+                {
+                    "config_path": config_path,
+                    "config_version": config_version,
+                    "current_version": __version__,
+                },
+            )
+        )
+
+    parsed_current_version = parse_jrnl_version(__version__)
+    # The running program's own version always has to be parseable.
+    assert parsed_current_version is not None
+
+    if compare_jrnl_versions(parsed_config_version, parsed_current_version) > 0:
+        raise JrnlException(
+            Message(
+                MsgText.ConfigVersionNewer,
+                MsgStyle.ERROR,
+                {
+                    "config_path": config_path,
+                    "config_version": config_version,
+                    "current_version": __version__,
+                },
+            )
+        )
 
 
 def make_yaml_valid_dict(input: list) -> dict:
@@ -60,13 +173,22 @@ def make_yaml_valid_dict(input: list) -> dict:
 
 def save_config(config: dict, alt_config_path: str | None = None) -> None:
     """Supply alt_config_path if using an alternate config through --config-file."""
+    config_path = alt_config_path if alt_config_path else get_config_path()
+
+    # Every config write-back goes through here: a config stamped with a
+    # newer or unparseable version must never be rewritten, no matter which
+    # entry point (fill-in, in-place encrypt/decrypt, pending updates) asked
+    # for the write.
+    if "version" in config:
+        ensure_config_version_compatible(config["version"], config_path)
+
     config["version"] = __version__
 
     yaml = YAML(typ="safe")
     yaml.default_flow_style = False  # prevents collapsing of tree structure
 
     with open(
-        alt_config_path if alt_config_path else get_config_path(),
+        config_path,
         "w",
         encoding=YAML_FILE_ENCODING,
     ) as f:
@@ -221,6 +343,14 @@ def flush_pending_config_updates(
     Supply alt_config_path if using an alternate config through --config-file."""
     if not journal._pending_config_updates:
         return
+
+    # Refuse before accumulating anything onto a config we are not allowed
+    # to rewrite, so no partial update can reach the disk write below.
+    if "version" in original_config:
+        ensure_config_version_compatible(
+            original_config["version"],
+            alt_config_path if alt_config_path else get_config_path(),
+        )
 
     apply_config_updates_in_place(
         original_config, journal._pending_config_updates, journal_name

@@ -232,6 +232,35 @@ class MsgText(Enum):
         Configuration updated to newest version at {config_path}
         """
 
+    ConfigVersionNewer = """
+        This configuration file was written by a newer version of jrnl.
+
+        Configuration file:
+            {config_path}
+        Configuration version: {config_version}
+        Installed jrnl version: {current_version}
+
+        The configuration version is newer than the installed jrnl version,
+        so jrnl refuses to start rather than rewriting it with an older
+        version. The configuration file has been left unchanged. Please
+        install jrnl version {config_version} or newer and try again.
+        """
+
+    ConfigVersionUnparseable = """
+        The 'version' setting in the configuration file could not be
+        understood.
+
+        Configuration file:
+            {config_path}
+        Configuration version: {config_version}
+        Installed jrnl version: {current_version}
+
+        Because jrnl cannot determine whether this configuration comes from
+        a newer version, jrnl refuses to start and the configuration file
+        has been left unchanged. Please fix or remove the 'version' setting
+        and try again.
+        """
+
     ConfigDoubleKeys = """
         There is at least one duplicate key in your configuration file.
 

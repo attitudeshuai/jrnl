@@ -154,3 +154,30 @@ Feature: Multiple journals
         When we run "jrnl -1"
         Then the output should contain "Configuration updated to newest version at"
         And the version in the config file should be up-to-date
+
+    Scenario: Refuse to start when the config was written by a newer jrnl version
+        Given the config "future_version.yaml" exists
+        And we use the config "basic_onefile.yaml"
+        When we run "jrnl --cf future_version.yaml -1"
+        Then we should get an error
+        And the error output should contain "written by a newer version of jrnl"
+        And the error output should contain "99.9"
+        And the config file "future_version.yaml" should be unchanged
+        And no backup file should exist for the config "future_version.yaml"
+
+    Scenario: Refuse to start when the config version cannot be parsed
+        Given the config "unparseable_version.yaml" exists
+        And we use the config "basic_onefile.yaml"
+        When we run "jrnl --cf unparseable_version.yaml -1"
+        Then we should get an error
+        And the error output should contain "could not be"
+        And the config file "unparseable_version.yaml" should be unchanged
+        And no backup file should exist for the config "unparseable_version.yaml"
+
+    Scenario: Treat a same-baseline beta as older than the release and update it
+        Given the config "same_baseline_beta.yaml" exists
+        And we use the config "basic_onefile.yaml"
+        When we run "jrnl --cf same_baseline_beta.yaml -1"
+        Then we should get no error
+        And the output should contain "Configuration updated to newest version at"
+        And the version in the config file "same_baseline_beta.yaml" should be current

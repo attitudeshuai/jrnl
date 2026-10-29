@@ -11,6 +11,7 @@ from rich.pretty import pretty_repr
 
 from jrnl import __version__
 from jrnl.config import DEFAULT_JOURNAL_KEY
+from jrnl.config import ensure_config_version_compatible
 from jrnl.config import get_config_path
 from jrnl.config import get_default_colors
 from jrnl.config import get_default_config
@@ -33,9 +34,10 @@ from jrnl.upgrade import is_old_version
 def upgrade_config(config_data: dict, alt_config_path: str | None = None) -> None:
     """Checks if there are keys missing in a given config dict, and if so, updates the
     config file accordingly. This essentially automatically ports jrnl installations
-    if new config parameters are introduced in later versions. Also checks for
-    existence of and difference in version number between config dict
-    and current jrnl version, and if so, update the config file accordingly.
+    if new config parameters are introduced in later versions. Configs stamped by a
+    newer jrnl, or with an unparseable version, are rejected before this runs (see
+    ensure_config_version_compatible); any compatible config whose stamp differs from
+    the current jrnl version is updated to the current version.
     Supply alt_config_path if using an alternate config through --config-file."""
     default_config = get_default_config()
     missing_keys = set(default_config).difference(config_data)
@@ -101,6 +103,14 @@ def load_or_install_jrnl(alt_config_path: str) -> dict:
                     },
                 )
             )
+
+        # Compare versions before anything can rewrite the file: a config
+        # stamped by a newer jrnl, or with a version we cannot parse, aborts
+        # startup here, leaving the file byte-for-byte untouched (no backup,
+        # no temporary file, no partial fill-in). A config without a version
+        # key is an old config and falls through to the fill-in flow below.
+        if "version" in config:
+            ensure_config_version_compatible(config["version"], config_path)
 
         if is_old_version(config_path):
             from jrnl import upgrade
