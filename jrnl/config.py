@@ -247,9 +247,19 @@ def get_journal_name(args: argparse.Namespace, config: dict) -> argparse.Namespa
 
 
 def cmd_requires_valid_journal_name(func: Callable) -> Callable:
-    def wrapper(args: argparse.Namespace, config: dict, original_config: dict):
+    def wrapper(
+        args: argparse.Namespace,
+        config: dict,
+        original_config: dict,
+        **kwargs,
+    ):
         validate_journal_name(args.journal_name, config)
-        func(args=args, config=config, original_config=original_config)
+        func(
+            args=args,
+            config=config,
+            original_config=original_config,
+            **kwargs,
+        )
 
     return wrapper
 

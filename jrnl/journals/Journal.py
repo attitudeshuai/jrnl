@@ -594,9 +594,9 @@ def open_journal(journal_name: str, config: dict, legacy: bool = False) -> Journ
                 )
             )
 
-        if config["journal"].strip("/").endswith(".dayone") or "entries" in os.listdir(
-            config["journal"]
-        ):
+        from jrnl.journals.probe import is_dayone_directory
+
+        if is_dayone_directory(config["journal"], os.listdir(config["journal"])):
             from jrnl.journals import DayOne
 
             return DayOne(**config).open()

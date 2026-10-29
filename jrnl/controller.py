@@ -60,12 +60,16 @@ def run(args: "Namespace"):
     config = apply_overrides(args, config)
 
     args = get_journal_name(args, config)
+    unscoped_config = config
     config = scope_config(config, args.journal_name)
 
     # Run post-config command now that config is ready
     if callable(args.postconfig_cmd):
         return args.postconfig_cmd(
-            args=args, config=config, original_config=original_config
+            args=args,
+            config=config,
+            original_config=original_config,
+            unscoped_config=unscoped_config,
         )
 
     # --- All the standalone commands are now done --- #

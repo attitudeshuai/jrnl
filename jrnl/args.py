@@ -6,6 +6,7 @@ import re
 import textwrap
 
 from jrnl.commands import postconfig_decrypt
+from jrnl.commands import postconfig_doctor
 from jrnl.commands import postconfig_encrypt
 from jrnl.commands import postconfig_import
 from jrnl.commands import postconfig_list
@@ -136,6 +137,18 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         const=postconfig_list,
         dest="postconfig_cmd",
         help=argparse.SUPPRESS,
+    )
+    standalone.add_argument(
+        "--doctor",
+        action="store_const",
+        const=postconfig_doctor,
+        dest="postconfig_cmd",
+        help="""
+        Check the installation and all configured journals without
+        modifying anything. Reports the config path and, for each journal,
+        whether it is readable, missing, unreadable or locked, and which
+        type of journal it is.
+        """,
     )
     standalone.add_argument(
         "-ls",

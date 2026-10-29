@@ -56,10 +56,20 @@ def journal_list_to_stdout(journal_list: dict) -> str:
     return result
 
 
-def list_journals(configuration: dict, format: str | None = None) -> str:
+def list_journals(
+    configuration: dict,
+    format: str | None = None,
+    reports: dict | None = None,
+) -> str:
     from jrnl import config
 
-    """List the journals specified in the configuration file"""
+    """List the journals specified in the configuration file.
+
+    Machine-readable formats (json, yaml) append read-only reachability and
+    type reports for each journal when ``reports`` is given. The plain text
+    format is never extended: its output stays byte-for-byte unchanged, and
+    problems are reported separately as warnings on stderr.
+    """
 
     journal_list = {
         "config_path": config.get_config_path(),
@@ -67,11 +77,96 @@ def list_journals(configuration: dict, format: str | None = None) -> str:
     }
 
     if format == "json":
+        if reports is not None:
+            journal_list["journal_reports"] = reports["journals"]
+            journal_list["problems"] = reports["problems"]
+            journal_list["summary"] = reports["summary"]
         return journal_list_to_json(journal_list)
     elif format == "yaml":
+        if reports is not None:
+            journal_list["journal_reports"] = reports["journals"]
+            journal_list["problems"] = reports["problems"]
+            journal_list["summary"] = reports["summary"]
         return journal_list_to_yaml(journal_list)
     else:
         return journal_list_to_stdout(journal_list)
+
+
+def doctor_report(configuration: dict, reports: dict) -> str:
+    """Human-readable installation self-check. Uses the same probe results as
+    the journal list, so its conclusions always agree with ``--list``."""
+    from jrnl import config
+
+    result = f"jrnl installation check\nConfig: {config.get_config_path()}\n"
+
+    names = list(configuration["journals"].keys())
+    width = min(max((len(name) for name in names), default=0), 20)
+
+    for name in names:
+        report = reports["journals"][name]
+        path = configuration["journals"][name]
+        if isinstance(path, dict):
+            path = path["journal"]
+        line = " * {:{}} -> {}\n     {}\n".format(
+            name, width, path, _describe_journal_report(report)
+        )
+        result += line
+
+    summary = reports["summary"]
+    result += (
+        f"Summary: {summary['total']} configured, {summary['readable']} "
+        f"readable, {summary['locked']} locked, {summary['missing']} missing, "
+        f"{summary['unreadable']} unreadable, {summary['problems']} with "
+        "problems\n"
+    )
+    return result
+
+
+def _describe_journal_report(report: dict) -> str:
+    description = report["status"]
+    if report.get("type"):
+        description += f", {report['type']}"
+    if "entry_count" in report:
+        description += f", {report['entry_count']} entries"
+    if report.get("last_entry_time"):
+        description += f", latest {report['last_entry_time']}"
+    if report.get("reason"):
+        description += f"\n     {report['reason']}"
+    return description
+
+
+def warn_journal_problems(reports: dict) -> None:
+    """Print one warning per problem journal, followed by the summary count.
+    Always goes to stderr and never changes the command's exit status."""
+    for problem in reports["problems"]:
+        report = reports["journals"][problem["journal"]]
+        if report["status"] == "missing":
+            message_text = MsgText.JournalListProblemMissing
+        elif report["status"] == "unreadable":
+            message_text = MsgText.JournalListProblemUnreadable
+        else:
+            message_text = MsgText.JournalListProblemNotAJournal
+
+        print_msg(
+            Message(
+                message_text,
+                MsgStyle.WARNING,
+                {
+                    "journal_name": problem["journal"],
+                    "path": problem["path"],
+                    "reason": problem["reason"],
+                },
+            )
+        )
+
+    summary = reports["summary"]
+    print_msg(
+        Message(
+            MsgText.JournalListSummary,
+            MsgStyle.WARNING if summary["problems"] else MsgStyle.NORMAL,
+            summary,
+        )
+    )
 
 
 def print_msg(msg: Message, **kwargs) -> str | None:

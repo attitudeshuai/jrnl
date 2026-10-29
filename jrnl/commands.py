@@ -59,17 +59,44 @@ def preconfig_version(_) -> None:
     print(output)
 
 
-def postconfig_list(args: argparse.Namespace, config: dict, **_) -> int:
+def postconfig_list(
+    args: argparse.Namespace, config: dict, unscoped_config: dict, **_
+) -> int:
+    from jrnl.journals import probe_all_journals
     from jrnl.output import list_journals
+    from jrnl.output import warn_journal_problems
 
-    print(list_journals(config, args.export))
+    # Probe from the unscoped config so each journal is scoped on its own
+    # settings instead of inheriting the default journal's overrides.
+    reports = probe_all_journals(unscoped_config)
+
+    print(list_journals(unscoped_config, args.export, reports=reports))
+
+    # Problems are warnings only: the listing itself always succeeds.
+    warn_journal_problems(reports)
+
+    return 0
+
+
+def postconfig_doctor(
+    args: argparse.Namespace, config: dict, unscoped_config: dict, **_
+) -> int:
+    from jrnl.journals import probe_all_journals
+    from jrnl.output import doctor_report
+    from jrnl.output import warn_journal_problems
+
+    reports = probe_all_journals(unscoped_config)
+
+    print(doctor_report(unscoped_config, reports))
+
+    warn_journal_problems(reports)
 
     return 0
 
 
 @cmd_requires_valid_journal_name
 def postconfig_import(
-    args: argparse.Namespace, config: dict, original_config: dict
+    args: argparse.Namespace, config: dict, original_config: dict, **_
 ) -> int:
     from jrnl.config import flush_pending_config_updates
     from jrnl.journals import open_journal
@@ -102,7 +129,7 @@ def postconfig_import(
 
 @cmd_requires_valid_journal_name
 def postconfig_encrypt(
-    args: argparse.Namespace, config: dict, original_config: dict
+    args: argparse.Namespace, config: dict, original_config: dict, **_
 ) -> int:
     """
     Encrypt a journal in place, or optionally to a new file
@@ -155,7 +182,7 @@ def postconfig_encrypt(
 
 @cmd_requires_valid_journal_name
 def postconfig_decrypt(
-    args: argparse.Namespace, config: dict, original_config: dict
+    args: argparse.Namespace, config: dict, original_config: dict, **_
 ) -> int:
     """Decrypts to file. If filename is not set, we encrypt the journal file itself."""
     from jrnl.config import update_config

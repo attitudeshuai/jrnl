@@ -645,7 +645,7 @@ Feature: Custom formats
         When we run "jrnl --list --format json"
         Then the output should match
             """
-            {"config_path": ".+basic_onefile\.yaml", "journals": {"default": "features/journals/basic_onefile\.journal"}}
+            \{"config_path": ".+basic_onefile\.yaml", "journals": \{"default": "features/journals/basic_onefile\.journal"\}, "journal_reports": \{"default": \{"path": "features/journals/basic_onefile\.journal", "status": "readable", "type": "file", "entry_count": 3, "last_entry_time": "[^"]+"\}\}, "problems": \[\], "summary": \{"total": 1, "readable": 1, "locked": 0, "missing": 0, "unreadable": 0, "problems": 0\}\}
             """
         When we run "jrnl --list --format yaml"
         Then the output should match
@@ -653,6 +653,21 @@ Feature: Custom formats
             config_path: .+basic_onefile\.yaml
             journals:
               default: features/journals/basic_onefile\.journal
+            journal_reports:
+              default:
+                path: features/journals/basic_onefile\.journal
+                status: readable
+                type: file
+                entry_count: 3
+                last_entry_time: .+
+            problems: \[\]
+            summary:
+              total: 1
+              readable: 1
+              locked: 0
+              missing: 0
+              unreadable: 0
+              problems: 0
             """
 
     Scenario: Export journal list to formats with no default journal
@@ -667,7 +682,7 @@ Feature: Custom formats
         When we run "jrnl --list --format json"
         Then the output should match
             """
-            {"config_path": ".+no_default_journal\.yaml", "journals": {"simple": "features/journals/simple\.journal", "work": "features/journals/work\.journal"}}
+            \{"config_path": ".+no_default_journal\.yaml", "journals": \{"simple": "features/journals/simple\.journal", "work": "features/journals/work\.journal"\}, "journal_reports": \{"simple": \{"path": "features/journals/simple\.journal", "status": "readable", "type": "file", "entry_count": 2, "last_entry_time": "[^"]+"\}, "work": \{"path": "features/journals/work\.journal", "status": "readable", "type": "file", "entry_count": 0\}\}, "problems": \[\], "summary": \{"total": 2, "readable": 2, "locked": 0, "missing": 0, "unreadable": 0, "problems": 0\}\}
             """
         When we run "jrnl --list --format yaml"
         Then the output should match
@@ -676,4 +691,24 @@ Feature: Custom formats
             journals:
               simple: features/journals/simple\.journal
               work: features/journals/work\.journal
+            journal_reports:
+              simple:
+                path: features/journals/simple\.journal
+                status: readable
+                type: file
+                entry_count: 2
+                last_entry_time: .+
+              work:
+                path: features/journals/work\.journal
+                status: readable
+                type: file
+                entry_count: 0
+            problems: \[\]
+            summary:
+              total: 2
+              readable: 2
+              locked: 0
+              missing: 0
+              unreadable: 0
+              problems: 0
             """

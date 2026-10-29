@@ -7,7 +7,7 @@ License: https://www.gnu.org/licenses/gpl-3.0.html
 
 ## Synopsis
 ```
-usage: jrnl [--debug] [--help] [--version] [--list] [--encrypt] [--decrypt]
+usage: jrnl [--debug] [--help] [--version] [--list] [--doctor] [--encrypt] [--decrypt]
             [--import] [-on DATE] [-today-in-history] [-month DATE]
             [-day DATE] [-year DATE] [-from DATE] [-to DATE] [-contains TEXT]
             [-and] [-starred] [-n [NUMBER]] [-not [TAG]] [--edit] [--delete]
@@ -29,6 +29,20 @@ Print version and license information.
 
 ### --list
 List the config file location, all configured journals, and their locations.
+
+The machine-readable formats (`--format json` or `--format yaml`) additionally
+report, for each journal, its reachability (`readable`, `missing`,
+`unreadable`, or `locked` for encrypted journals), its type (`file`, `folder`,
+or `dayone`), and -- for readable plaintext journals -- its entry count and the
+time of the latest entry. Problems are listed with their path and reason and
+counted in a summary, but the command always exits successfully. Listing never
+creates or modifies a journal and never asks for a password.
+
+### --doctor
+Check the installation without changing anything: prints the config file
+location and, for every configured journal, the same reachability and type
+information as `--list`, with a summary at the end. Problems are reported as
+warnings; the exit status stays successful.
 
 ### --encrypt
 Encrypt a journal. See [encryption](encryption.md) for more information.

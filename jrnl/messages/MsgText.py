@@ -123,6 +123,23 @@ class MsgText(Enum):
     JournalNotSaved = "Entry NOT saved to journal"
     JournalEntryAdded = "Entry added to {journal_name} journal"
 
+    JournalListProblemMissing = """
+        Journal '{journal_name}' is missing: {path}
+        {reason}
+        """
+    JournalListProblemUnreadable = """
+        Journal '{journal_name}' cannot be read: {path}
+        {reason}
+        """
+    JournalListProblemNotAJournal = """
+        Journal '{journal_name}' is not usable: {path}
+        {reason}
+        """
+    JournalListSummary = """
+        {total} journal(s) configured: {readable} readable, {locked} locked,
+        {missing} missing, {unreadable} unreadable ({problems} with problems)
+        """
+
     JournalCountAddedSingular = "{num} entry added"
     JournalCountModifiedSingular = "{num} entry modified"
     JournalCountDeletedSingular = "{num} entry deleted"
